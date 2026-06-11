@@ -1,0 +1,129 @@
+version: "3.9"
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    container_name: echallan_app
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - ./logs:/app/logs
+    networks:
+      - echallan_net
+    restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: echallan_mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: root_pass
+      MYSQL_DATABASE: echallan_db
+      MYSQL_USER: echallan_user
+      MYSQL_PASSWORD: echallan_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "echallan_user", "-pechallan_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - echallan_net
+    restart: unless-stopped
+    command: >
+      --default-authentication-plugin=mysql_native_password
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+
+  redis:
+    image: redis:7-alpine
+    container_name: echallan_redis
+    command: >
+      redis-server
+      --requirepass redis_pass
+      --appendonly yes
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "redis_pass", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - echallan_net
+    restart: unless-stopped
+
+  ipfs:
+    image: ipfs/kubo:latest
+    container_name: echallan_ipfs
+    ports:
+      - "4001:4001"
+      - "5001:5001"
+      - "8080:8080"
+    volumes:
+      - ipfs_data:/data/ipfs
+    environment:
+      IPFS_PROFILE: server
+    networks:
+      - echallan_net
+    restart: unless-stopped
+
+  ganache:
+    image: trufflesuite/ganache:latest
+    container_name: echallan_ganache
+    ports:
+      - "8545:8545"
+    command: >
+      --chain.chainId 1337
+      --wallet.accounts "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80,1000000000000000000000"
+      --miner.blockTime 1
+      --database.dbPath /data
+    volumes:
+      - ganache_data:/data
+    networks:
+      - echallan_net
+    restart: unless-stopped
+
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: final
+    container_name: echallan_migrate
+    env_file: .env
+    command: alembic upgrade head
+    depends_on:
+      mysql:
+        condition: service_healthy
+    networks:
+      - echallan_net
+    profiles:
+      - migration
+    restart: "no"
+
+volumes:
+  mysql_data:
+  redis_data:
+  ipfs_data:
+  ganache_data:
+
+networks:
+  echallan_net:
+    driver: bridge

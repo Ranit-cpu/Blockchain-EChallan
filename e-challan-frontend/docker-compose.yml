@@ -1,0 +1,33 @@
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-/api/v1}
+        VITE_WS_URL: ${VITE_WS_URL:-}
+        VITE_APP_NAME: ${VITE_APP_NAME:-e-Challan}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    environment:
+      - NGINX_HOST=localhost
+    restart: unless-stopped
+    networks:
+      - echallan-network
+    depends_on:
+      - backend-proxy
+
+  backend-proxy:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./nginx-proxy.conf:/etc/nginx/conf.d/default.conf:ro
+    ports:
+      - "${BACKEND_PROXY_PORT:-8000}:80"
+    networks:
+      - echallan-network
+    profiles:
+      - with-backend
+
+networks:
+  echallan-network:
+    driver: bridge
